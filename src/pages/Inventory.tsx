@@ -1,26 +1,43 @@
 "use client"
 
 import type React from "react"
-
-import { useNavigate } from "react-router-dom"
-import { useEffect, useState } from "react"
+import { User, LogOut, Upload, ImageIcon } from "lucide-react"
+import { Link, useNavigate } from "react-router-dom"
+import { useEffect, useState, useRef } from "react"
 import axios from "axios"
+import { Button } from "../components/ui/button"
+import { ArrowRight } from "lucide-react"
 
 interface Producto {
   id: number
   nombre: string
-  precio: number | string // Modificado para aceptar string o number
-  stock: number | string // Modificado para aceptar string o number
+  precio: number | string
+  stock: number | string
+  imagen?: string | null // Simplificado para evitar problemas de tipo
 }
 
 function Inventario() {
   const [productos, setProductos] = useState<Producto[]>([])
   const [nuevoProducto, setNuevoProducto] = useState({ nombre: "", precio: "", stock: "" })
+  const [imagenFile, setImagenFile] = useState<File | null>(null) // Estado separado para el archivo
+  const [editImagenFile, setEditImagenFile] = useState<File | null>(null) // Estado separado para edición
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [editValues, setEditValues] = useState<Producto>({ id: 0, nombre: "", precio: 0, stock: 0 })
+  const [editValues, setEditValues] = useState<Producto>({
+    id: 0,
+    nombre: "",
+    precio: 0,
+    stock: 0,
+    imagen: null,
+  })
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!localStorage.getItem("token"))
   const [showConfirmDelete, setShowConfirmDelete] = useState<number | null>(null)
+  const [uploadingImage, setUploadingImage] = useState<number | null>(null)
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const editFileInputRef = useRef<HTMLInputElement>(null)
 
   const navigate = useNavigate()
 
@@ -35,6 +52,14 @@ function Inventario() {
     headers: {
       Authorization: `Bearer ${getToken()}`,
       "Content-Type": "application/json",
+    },
+  })
+
+  // Configuración para subir archivos
+  const getFileUploadConfig = () => ({
+    headers: {
+      Authorization: `Bearer ${getToken()}`,
+      "Content-Type": "multipart/form-data",
     },
   })
 
@@ -55,6 +80,7 @@ function Inventario() {
     try {
       setLoading(true)
       const response = await axios.get("http://127.0.0.1:8000/api/productos/", getAxiosConfig())
+      console.log("Productos cargados:", response.data)
       setProductos(response.data)
       setError("")
     } catch (err) {
@@ -69,6 +95,36 @@ function Inventario() {
     }
   }
 
+  // Manejar selección de imagen
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setImagenFile(file) // Guardar el archivo en un estado separado
+
+      // Crear preview
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setPreviewImage(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  // Manejar selección de imagen para edición
+  const handleEditImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setEditImagenFile(file) // Guardar el archivo en un estado separado
+
+      // Crear preview
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setPreviewImage(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
   // Agregar producto
   const agregarProducto = async () => {
     // Validar que los campos no estén vacíos
@@ -79,6 +135,8 @@ function Inventario() {
 
     try {
       setLoading(true)
+
+      // Primero creamos el producto
       const productoData = {
         nombre: nuevoProducto.nombre,
         precio: Number.parseFloat(nuevoProducto.precio),
@@ -86,9 +144,35 @@ function Inventario() {
       }
 
       const response = await axios.post("http://127.0.0.1:8000/api/productos/", productoData, getAxiosConfig())
+      const nuevoProductoCreado = response.data
 
-      setProductos([...productos, response.data])
+      // Si hay imagen, la subimos
+      if (imagenFile) {
+        const formData = new FormData()
+        formData.append("imagen", imagenFile)
+
+        try {
+          const imagenResponse = await axios.post(
+            `http://127.0.0.1:8000/api/productos/${nuevoProductoCreado.id}/imagen/`,
+            formData,
+            getFileUploadConfig(),
+          )
+
+          // Actualizamos el producto con la URL de la imagen
+          if (imagenResponse.data && imagenResponse.data.imagen_url) {
+            console.log("Imagen subida con URL:", imagenResponse.data.imagen_url)
+            nuevoProductoCreado.imagen = imagenResponse.data.imagen_url
+          }
+        } catch (imgErr) {
+          console.error("Error al subir la imagen:", imgErr)
+          // Continuamos aunque falle la subida de imagen
+        }
+      }
+
+      setProductos([...productos, nuevoProductoCreado])
       setNuevoProducto({ nombre: "", precio: "", stock: "" }) // Limpiar formulario
+      setImagenFile(null) // Limpiar archivo
+      setPreviewImage(null)
       setError("")
     } catch (err) {
       console.error("Error al agregar producto:", err)
@@ -99,6 +183,52 @@ function Inventario() {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Subir imagen para un producto existente
+  const subirImagen = async (id: number) => {
+    if (!editImagenFile) return
+
+    try {
+      setUploadingImage(id)
+      const formData = new FormData()
+      formData.append("imagen", editImagenFile)
+
+      const token = getToken()
+      if (!token) {
+        navigate("/login")
+        return
+      }
+
+      const response = await axios.post(
+        `http://127.0.0.1:8000/api/productos/${id}/imagen/`,
+        formData,
+        getFileUploadConfig(),
+      )
+
+      // Verificar que la respuesta contiene la URL de la imagen
+      if (response.data && response.data.imagen_url) {
+        console.log("Imagen actualizada con URL:", response.data.imagen_url)
+
+        // Actualizar el producto con la nueva URL de imagen
+        setProductos(productos.map((prod) => (prod.id === id ? { ...prod, imagen: response.data.imagen_url } : prod)))
+      } else {
+        console.warn("La respuesta no contiene la URL de la imagen:", response.data)
+      }
+
+      setEditImagenFile(null)
+      setPreviewImage(null)
+      setError("")
+    } catch (err) {
+      console.error("Error al subir imagen:", err)
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        navigate("/login")
+      } else {
+        setError("Error al subir la imagen. Intenta nuevamente.")
+      }
+    } finally {
+      setUploadingImage(null)
     }
   }
 
@@ -129,7 +259,10 @@ function Inventario() {
       nombre: producto.nombre,
       precio: typeof producto.precio === "string" ? Number.parseFloat(producto.precio) : producto.precio,
       stock: typeof producto.stock === "string" ? Number.parseInt(producto.stock) : producto.stock,
+      imagen: producto.imagen,
     })
+    setEditImagenFile(null) // Resetear el archivo de imagen
+    setPreviewImage(typeof producto.imagen === "string" ? producto.imagen : null)
   }
 
   // Manejar cambios en el formulario de edición
@@ -157,7 +290,16 @@ function Inventario() {
         getAxiosConfig(),
       )
 
-      setProductos(productos.map((prod) => (prod.id === editingId ? response.data : prod)))
+      // Si hay una nueva imagen, la subimos después de actualizar los datos
+      if (editImagenFile) {
+        await subirImagen(editingId)
+      } else {
+        // Si no hay nueva imagen, mantener la imagen actual
+        setProductos(
+          productos.map((prod) => (prod.id === editingId ? { ...response.data, imagen: prod.imagen } : prod)),
+        )
+      }
+
       setEditingId(null)
       setError("")
     } catch (err) {
@@ -172,6 +314,12 @@ function Inventario() {
     }
   }
 
+  const handleLogout = () => {
+    localStorage.removeItem("token") // Eliminar token de sesión
+    setIsAuthenticated(false)
+    navigate("/home") // Redirigir al home
+  }
+
   // Función auxiliar para formatear el precio
   const formatPrecio = (precio: number | string): string => {
     if (typeof precio === "number") {
@@ -183,11 +331,70 @@ function Inventario() {
     return "0.00"
   }
 
+  // Función para obtener la URL completa de la imagen
+  const getImageUrl = (imagePath: string | null | undefined): string => {
+    if (!imagePath) return "/placeholder.svg"
+
+    // Si la URL ya es absoluta (comienza con http:// o https://), usarla directamente
+    if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
+      return imagePath
+    }
+
+    // Si es una ruta relativa, construir la URL completa
+    return `http://127.0.0.1:8000${imagePath}`
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 text-white p-4 md:p-6">
+    <div className="min-h-screen bg-black text-gray-200 p-6">
+      {/* Header */}
+      <header className="flex justify-between items-center p-4 md:p-6 w-full">
+        <div className="flex items-center">
+          <Link to={"/home"}>
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-500 to-blue-500 bg-clip-text text-transparent">
+              VAPOR<span className="font-light">ZONE</span>
+            </h1>
+          </Link>
+        </div>
+
+        <div className="w-full flex justify-center">
+          <Link
+            to="/transacciones"
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-medium transition-all duration-300 hover:brightness-110 hover:scale-105 shadow-md rounded-md"
+          >
+            Ver Transacciones
+            <ArrowRight className="w-5 h-5" />
+          </Link>
+        </div>
+
+        {isAuthenticated ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800"
+            onClick={handleLogout}
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Cerrar Sesión
+          </Button>
+        ) : (
+          <Link to="/login">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800"
+            >
+              <User className="h-4 w-4 mr-2" />
+              Iniciar Sesión
+            </Button>
+          </Link>
+        )}
+      </header>
+
       <div className="max-w-6xl mx-auto bg-gray-800 rounded-lg shadow-xl border border-gray-700 overflow-hidden">
         <div className="border-b border-gray-700 p-4 md:p-6 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-blue-400">Inventario de Vapers</h1>
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-500 to-blue-500 bg-clip-text text-transparent">
+            Inventario de Vapers
+          </h1>
           <button
             onClick={fetchProductos}
             className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-md flex items-center"
@@ -215,14 +422,14 @@ function Inventario() {
           )}
 
           {/* Formulario para agregar nuevo producto */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
             <div>
               <label className="text-sm font-medium mb-1 block text-gray-300">Nombre</label>
               <input
                 type="text"
                 value={nuevoProducto.nombre}
                 onChange={(e) => setNuevoProducto({ ...nuevoProducto, nombre: e.target.value })}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 placeholder="Nombre del vaper"
               />
             </div>
@@ -232,7 +439,7 @@ function Inventario() {
                 type="number"
                 value={nuevoProducto.precio}
                 onChange={(e) => setNuevoProducto({ ...nuevoProducto, precio: e.target.value })}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 placeholder="Precio"
                 min="0"
                 step="0.01"
@@ -244,16 +451,49 @@ function Inventario() {
                 type="number"
                 value={nuevoProducto.stock}
                 onChange={(e) => setNuevoProducto({ ...nuevoProducto, stock: e.target.value })}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 placeholder="Cantidad en stock"
                 min="0"
               />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block text-gray-300">Imagen</label>
+              <div className="flex items-center">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImageSelect}
+                  accept="image/*"
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 flex items-center justify-center"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  {imagenFile ? "Cambiar imagen" : "Subir imagen"}
+                </button>
+              </div>
+              {previewImage && !editingId && (
+                <div className="mt-2 relative w-16 h-16 rounded-md overflow-hidden">
+                  <img
+                    src={previewImage || "/placeholder.svg"}
+                    alt="Vista previa"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = "/placeholder.svg"
+                      e.currentTarget.onerror = null
+                    }}
+                  />
+                </div>
+              )}
             </div>
             <div className="flex items-end">
               <button
                 onClick={agregarProducto}
                 disabled={loading}
-                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white font-medium rounded-md flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -276,7 +516,7 @@ function Inventario() {
           {/* Indicador de carga */}
           {loading && (
             <div className="flex justify-center my-4">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
             </div>
           )}
 
@@ -286,6 +526,7 @@ function Inventario() {
               <thead className="bg-gray-700">
                 <tr>
                   <th className="text-gray-200 px-4 py-3 w-[80px] text-center">ID</th>
+                  <th className="text-gray-200 px-4 py-3">Imagen</th>
                   <th className="text-gray-200 px-4 py-3">Nombre</th>
                   <th className="text-gray-200 px-4 py-3">Precio</th>
                   <th className="text-gray-200 px-4 py-3">Stock</th>
@@ -295,7 +536,7 @@ function Inventario() {
               <tbody>
                 {productos.length === 0 && !loading ? (
                   <tr>
-                    <td colSpan={5} className="text-center text-gray-400 py-6 px-4">
+                    <td colSpan={6} className="text-center text-gray-400 py-6 px-4">
                       No hay vapers en el inventario
                     </td>
                   </tr>
@@ -305,11 +546,62 @@ function Inventario() {
                       <td className="px-4 py-3 text-center font-medium">{producto.id}</td>
                       <td className="px-4 py-3">
                         {editingId === producto.id ? (
+                          <div>
+                            <input
+                              type="file"
+                              ref={editFileInputRef}
+                              onChange={handleEditImageSelect}
+                              accept="image/*"
+                              className="hidden"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => editFileInputRef.current?.click()}
+                              className="px-2 py-1 bg-gray-700 border border-gray-600 rounded-md text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 flex items-center justify-center text-xs"
+                            >
+                              <Upload className="h-3 w-3 mr-1" />
+                              {editImagenFile ? "Cambiar" : "Subir"}
+                            </button>
+                            {previewImage && (
+                              <div className="mt-2 relative w-12 h-12 rounded-md overflow-hidden">
+                                <img
+                                  src={previewImage || "/placeholder.svg"}
+                                  alt="Vista previa"
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.currentTarget.src = "/placeholder.svg"
+                                    e.currentTarget.onerror = null
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="relative w-12 h-12 rounded-md overflow-hidden bg-gray-700 flex items-center justify-center">
+                            {producto.imagen ? (
+                              <img
+                                src={getImageUrl(producto.imagen) || "/placeholder.svg"}
+                                alt={producto.nombre}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  console.error("Error al cargar imagen:", producto.imagen)
+                                  e.currentTarget.src = "/placeholder.svg"
+                                  e.currentTarget.onerror = null
+                                }}
+                              />
+                            ) : (
+                              <ImageIcon className="h-6 w-6 text-gray-500" />
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {editingId === producto.id ? (
                           <input
                             name="nombre"
                             value={editValues.nombre}
                             onChange={handleEditChange}
-                            className="w-full px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                           />
                         ) : (
                           producto.nombre
@@ -322,7 +614,7 @@ function Inventario() {
                             type="number"
                             value={editValues.precio || ""}
                             onChange={handleEditChange}
-                            className="w-full px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                             min="0"
                             step="0.01"
                           />
@@ -337,7 +629,7 @@ function Inventario() {
                             type="number"
                             value={editValues.stock || ""}
                             onChange={handleEditChange}
-                            className="w-full px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                             min="0"
                           />
                         ) : (
@@ -445,6 +737,14 @@ function Inventario() {
           </div>
         </div>
       </div>
+
+      {/* Footer */}
+      <footer className="mt-8 p-4 text-center text-gray-400 border-t border-gray-800">
+        <div className="max-w-6xl mx-auto">
+          <p className="text-sm">© {new Date().getFullYear()} VAPORZONE - Todos los derechos reservados</p>
+          <p className="text-xs mt-1 text-gray-500">Diseñado con ♥ para amantes del vapeo</p>
+        </div>
+      </footer>
     </div>
   )
 }

@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 const Contabilidad = () => {
   const [data, setData] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchData = async () => {
       const token = localStorage.getItem("access_token");
 
       if (!token) {
-        console.error("No hay token disponible");
+        console.error("No hay token disponible, redirigiendo...");
+        setTimeout(() => navigate("/home"), 500); // Evita redirigir instantáneamente
         return;
       }
 
@@ -16,7 +19,7 @@ const Contabilidad = () => {
         const response = await fetch("http://127.0.0.1:8000/api/contabilidad/", {
           method: "GET",
           headers: {
-            "Authorization": `Bearer ${token}`,  // Asegúrate de incluir el token
+            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
         });
@@ -33,7 +36,7 @@ const Contabilidad = () => {
     };
 
     fetchData();
-  }, []);
+  }, [navigate]);
 
   return (
     <div>
@@ -44,4 +47,3 @@ const Contabilidad = () => {
 };
 
 export default Contabilidad;
-  
