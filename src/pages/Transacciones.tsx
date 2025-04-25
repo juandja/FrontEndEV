@@ -3,8 +3,8 @@
 import type React from "react"
 
 import { useEffect, useState } from "react"
-import { ArrowRight } from "lucide-react";
-import { ChevronLeft, ChevronRight, User, LogOut } from 'lucide-react'
+import { ArrowRight } from "lucide-react"
+import { User, LogOut } from "lucide-react"
 import axios from "axios"
 import { toast } from "react-toastify"
 import { Button } from "@/components/ui/button"
@@ -13,24 +13,25 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, AlertCircle } from "lucide-react"
-import { Alert, AlertDescription } from "../components/ui/alert";
+import { Alert, AlertDescription } from "../components/ui/alert"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 const API_URL = "http://localhost:8000/api/transacciones/"
 const PRODUCTOS_URL = "http://localhost:8000/api/productos/"
 
-  // Obtener token del localStorage
-  const getToken = () => {
-    const token = localStorage.getItem("token")
-    return token
-  }
+// Obtener token del localStorage
+const getToken = () => {
+  const token = localStorage.getItem("token")
+  return token
+}
 
-  // Configuración de axios con el token
-  const getAxiosConfig = () => ({
-    headers: {
-      Authorization: `Bearer ${getToken()}`,
-      "Content-Type": "application/json",
-    },
-  })
+// Configuración de axios con el token
+const getAxiosConfig = () => ({
+  headers: {
+    Authorization: `Bearer ${getToken()}`,
+    "Content-Type": "application/json",
+  },
+})
 
 interface Transaccion {
   id: number
@@ -50,7 +51,6 @@ interface Producto {
   descripcion: string
 }
 
-
 export default function Transacciones() {
   const [transacciones, setTransacciones] = useState<Transaccion[]>([])
   const [form, setForm] = useState({
@@ -65,12 +65,15 @@ export default function Transacciones() {
   const [stockError, setStockError] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!localStorage.getItem("token"))
   const [buscandoProducto, setBuscandoProducto] = useState(false)
+  const [productos, setProductos] = useState<Producto[]>([])
+  const [cargandoProductos, setCargandoProductos] = useState(false)
 
   const token = localStorage.getItem("token")
-    const navigate = useNavigate()
+  const navigate = useNavigate()
 
   useEffect(() => {
     fetchTransacciones()
+    fetchProductos()
   }, [])
 
   const fetchTransacciones = async () => {
@@ -89,8 +92,39 @@ export default function Transacciones() {
     }
   }
 
+  const fetchProductos = async () => {
+    if (!token) {
+      toast.error("No hay token disponible")
+      return
+    }
+
+    setCargandoProductos(true)
+    try {
+      const response = await axios.get(PRODUCTOS_URL, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      setProductos(response.data)
+    } catch (error) {
+      toast.error("Error al obtener productos")
+    } finally {
+      setCargandoProductos(false)
+    }
+  }
+
   const buscarProducto = async (id: string) => {
     if (!id || !token) return
+
+    // Primero buscar en la lista de productos ya cargados
+    const productoEncontrado = productos.find((p) => p.id.toString() === id)
+    if (productoEncontrado) {
+      setProductoSeleccionado(productoEncontrado)
+      // Validar cantidad si ya hay un valor
+      if (form.cantidad) {
+        const cantidad = Number.parseInt(form.cantidad)
+        setStockError(cantidad > productoEncontrado.stock)
+      }
+      return
+    }
 
     setBuscandoProducto(true)
     setProductoSeleccionado(null)
@@ -115,18 +149,21 @@ export default function Transacciones() {
     navigate("/home") // Redirigir al home
   }
 
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
     setForm({ ...form, [name]: value })
 
-    if (name === "producto" && value) {
-      buscarProducto(value)
-    }
-
     if (name === "cantidad" && productoSeleccionado) {
       const cantidad = Number.parseInt(value)
       setStockError(cantidad > productoSeleccionado.stock)
+    }
+  }
+
+  const handleSelectChange = (name: string, value: string) => {
+    setForm({ ...form, [name]: value })
+
+    if (name === "producto") {
+      buscarProducto(value)
     }
   }
 
@@ -173,30 +210,28 @@ export default function Transacciones() {
       {/* Header */}
       <header className="flex justify-between items-center p-4 md:p-6 w-full">
         <div className="flex items-center">
-        <Link to={"/home"}>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-500 to-blue-500 bg-clip-text text-transparent">
-            VAPOR<span className="font-light">ZONE</span>
-          </h1>
+          <Link to={"/home"}>
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-500 to-blue-500 bg-clip-text text-transparent">
+              VAPOR<span className="font-light">ZONE</span>
+            </h1>
           </Link>
         </div>
-        <div className="items-center justify-center border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800">
+        <div className="items-center justify-center border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800"></div>
 
-       </div >
-
-       <div className="w-full flex justify-center">
-        <Link
-          to="/inventario"
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-medium transition-all duration-300 hover:brightness-110 hover:scale-105 shadow-md"
-        >
-          Ver Inventario
-          <ArrowRight className="w-5 h-5" />
-        </Link>
-      </div>
+        <div className="w-full flex justify-center">
+          <Link
+            to="/inventario"
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-medium transition-all duration-300 hover:brightness-110 hover:scale-105 shadow-md"
+          >
+            Ver Inventario
+            <ArrowRight className="w-5 h-5" />
+          </Link>
+        </div>
 
         {isAuthenticated ? (
-          <Button 
-            variant="outline" 
-            size="sm" 
+          <Button
+            variant="outline"
+            size="sm"
             className="border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800"
             onClick={handleLogout}
           >
@@ -205,7 +240,11 @@ export default function Transacciones() {
           </Button>
         ) : (
           <Link to="/login">
-            <Button variant="outline" size="sm" className="border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800"
+            >
               <User className="h-4 w-4 mr-2" />
               Iniciar Sesión
             </Button>
@@ -221,14 +260,15 @@ export default function Transacciones() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm text-gray-400 mb-1 block">Tipo</label>
-                  <Input
-                    name="tipo"
-                    placeholder="ingreso/inversión"
-                    value={form.tipo}
-                    onChange={handleChange}
-                    required
-                    className="bg-zinc-800 border-zinc-700"
-                  />
+                  <Select value={form.tipo} onValueChange={(value) => handleSelectChange("tipo", value)} required>
+                    <SelectTrigger className="bg-zinc-800 border-zinc-700">
+                      <SelectValue placeholder="Seleccionar tipo" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectItem value="ingreso">Ingreso</SelectItem>
+                      <SelectItem value="gasto">Gasto</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <label className="text-sm text-gray-400 mb-1 block">Monto</label>
@@ -258,16 +298,25 @@ export default function Transacciones() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm text-gray-400 mb-1 block">ID del producto</label>
-                  <Input
-                    name="producto"
-                    placeholder="ID del producto"
-                    type="number"
+                  <label className="text-sm text-gray-400 mb-1 block">Producto</label>
+                  <Select
                     value={form.producto}
-                    onChange={handleChange}
+                    onValueChange={(value) => handleSelectChange("producto", value)}
                     required
-                    className="bg-zinc-800 border-zinc-700"
-                  />
+                    disabled={cargandoProductos}
+                  >
+                    <SelectTrigger className="bg-zinc-800 border-zinc-700">
+                      <SelectValue placeholder={cargandoProductos ? "Cargando productos..." : "Seleccionar producto"} />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700 max-h-[300px]">
+                      {productos.map((producto) => (
+                        <SelectItem key={producto.id} value={producto.id.toString()}>
+                          {producto.nombre} - Stock: {producto.stock}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
                   {buscandoProducto && (
                     <div className="flex items-center mt-2 text-sm text-gray-400">
                       <Loader2 className="h-3 w-3 mr-2 animate-spin" />

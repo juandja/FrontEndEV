@@ -1,49 +1,78 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-const Contabilidad = () => {
-  const [data, setData] = useState(null);
-  const navigate = useNavigate();
+interface ContabilidadData {
+  total_ingresos: number;
+  total_inversiones: number;
+  total_ganancias: number;
+}
+
+export default function Contabilidad() {
+  const [data, setData] = useState<ContabilidadData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
-      const token = localStorage.getItem("access_token");
-
-      if (!token) {
-        console.error("No hay token disponible, redirigiendo...");
-        setTimeout(() => navigate("/home"), 500); // Evita redirigir instantáneamente
-        return;
-      }
-
       try {
-        const response = await fetch("http://127.0.0.1:8000/api/contabilidad/", {
-          method: "GET",
+        setLoading(true);
+        const token = localStorage.getItem("token"); // Obtener el token del almacenamiento local
+  
+        const response = await axios.get("http://127.0.0.1:8000/api/contabilidad/", {
           headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`, // Agregar el token en la cabecera
           },
         });
-
-        if (!response.ok) {
-          throw new Error("No autorizado");
-        }
-
-        const result = await response.json();
-        setData(result);
-      } catch (error) {
-        console.error("Error al obtener datos:", error);
+  
+        console.log("Contabilidad cargada:", response.data);
+        setData(response.data);
+        setError(null);
+      } catch (err) {
+        console.error("Error fetching contabilidad:", err);
+        setError("No se pudieron cargar los datos de contabilidad.");
+      } finally {
+        setLoading(false);
       }
     };
-
+  
     fetchData();
-  }, [navigate]);
+  }, []);
+
+  if (loading) return <p>Cargando datos...</p>;
+  if (error) return <p className="text-red-500">{error}</p>;
 
   return (
-    <div>
-      <h1>Contabilidad</h1>
-      {data ? <pre>{JSON.stringify(data, null, 2)}</pre> : <p>Cargando...</p>}
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Resumen Financiero</h1>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Ingresos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xl font-semibold text-green-500">${data?.total_ingresos}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Inversiones</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xl font-semibold text-red-500">-${data?.total_inversiones}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Ganancias</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xl font-semibold text-blue-500">${data?.total_ganancias}</p>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
-};
-
-export default Contabilidad;
+}
